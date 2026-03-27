@@ -428,33 +428,29 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 // ── CACHE LOCAL ───────────────────────────────────────────────────────────────
 let S={insumos:[],receitas:[],cardapio:[],vendas:[],eventos:[]};
 
-// ── API ───────────────────────────────────────────────────────────────────────
-async function apiGet(table, filter=''){
-  const params=new URLSearchParams({action:'get',table});
-  if(filter) params.set('filter',filter);
-  const r=await fetch(API+'?'+params);
+// ── API (tudo via GET para evitar bloqueio de CORS) ───────────────────────────
+async function apiCall(params){
+  const url=API+'?'+new URLSearchParams(params);
+  const r=await fetch(url);
   const d=await r.json();
   if(d.error) throw new Error(d.error);
   return d;
+}
+async function apiGet(table, filter=''){
+  const params={action:'get',table};
+  if(filter) params.filter=filter;
+  return apiCall(params);
 }
 async function apiPost(action,table,data,extra={}){
-  const body={action,table,data,...extra};
-  const r=await fetch(API,{method:'POST',body:JSON.stringify(body)});
-  const d=await r.json();
-  if(d.error) throw new Error(d.error);
-  return d;
+  // Serializa data e extra como JSON em um único parâmetro
+  const params={action,table,payload:JSON.stringify({data,...extra})};
+  return apiCall(params);
 }
 async function apiDelete(table,id){
-  const r=await fetch(API+'?'+new URLSearchParams({action:'delete',table,id}));
-  const d=await r.json();
-  if(d.error) throw new Error(d.error);
-  return d;
+  return apiCall({action:'delete',table,id});
 }
 async function apiDeleteWhere(table,filter){
-  const r=await fetch(API+'?'+new URLSearchParams({action:'deleteWhere',table,filter}));
-  const d=await r.json();
-  if(d.error) throw new Error(d.error);
-  return d;
+  return apiCall({action:'deleteWhere',table,filter});
 }
 
 // ── STATUS ────────────────────────────────────────────────────────────────────
