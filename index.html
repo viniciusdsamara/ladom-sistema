@@ -490,7 +490,7 @@ function sitab(pg,pane,el){
   document.querySelectorAll(`#pg-${pg} .itab`).forEach(t=>t.classList.remove('on'));
   document.getElementById(`ip-${pg}-${pane}`).classList.add('on');el.classList.add('on');
   if(pg==='rec'&&pane==='lista')renderRecLista();
-  if(pg==='rec'&&pane==='nova')renderIngSel();
+  if(pg==='rec'&&pane==='nova'){renderIngSel();calcRecCusto();}
   if(pg==='ev'&&pane==='lista')renderEventos();
 }
 
@@ -552,15 +552,28 @@ async function loadPadrao(){
 // ── RECEITAS ──────────────────────────────────────────────────────────────────
 let ingIds=[];
 function addIng(){
+  if(!S.insumos.length){
+    showAl('rec-al','Cadastre insumos antes de criar receitas.','w');
+    return;
+  }
   document.getElementById('ing-empty').style.display='none';
   const id=uid();ingIds.push(id);
   const d=document.createElement('div');d.id='ir-'+id;
   d.style.cssText='display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:6px';
-  d.innerHTML=`<select onchange="calcRecCusto()" style="width:100%"><option value="">-- selecione --</option>${S.insumos.map(i=>`<option>${i.nome}</option>`).join('')}</select><input type="number" placeholder="gramas" min="0" step="0.1" oninput="calcRecCusto()"><div style="background:var(--bg3);border-radius:6px;padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--text3)" id="ic-${id}">R$ 0,00</div><button class="btn-danger" onclick="delIng('${id}')">✕</button>`;
+  // Sempre usa S.insumos atualizado no momento do clique
+  const opts=S.insumos.map(i=>`<option value="${i.nome}">${i.nome}</option>`).join('');
+  d.innerHTML=`<select onchange="calcRecCusto()" style="width:100%"><option value="">-- selecione insumo --</option>${opts}</select><input type="number" placeholder="gramas" min="0" step="0.1" oninput="calcRecCusto()" style="width:100%"><div style="background:var(--bg3);border-radius:6px;padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--text3)" id="ic-${id}">R$ 0,00</div><button class="btn-danger" onclick="delIng('${id}')">✕</button>`;
   document.getElementById('ing-rows').appendChild(d);
 }
 function delIng(id){ingIds=ingIds.filter(x=>x!==id);document.getElementById('ir-'+id)?.remove();if(!ingIds.length)document.getElementById('ing-empty').style.display='';calcRecCusto()}
-function renderIngSel(){document.querySelectorAll('#ing-rows select').forEach(sel=>{const v=sel.value;sel.innerHTML='<option value="">-- selecione --</option>'+S.insumos.map(i=>`<option ${i.nome===v?'selected':''}>${i.nome}</option>`).join('')})}
+function renderIngSel(){
+  document.querySelectorAll('#ing-rows select').forEach(sel=>{
+    const v=sel.value;
+    const opts=S.insumos.map(i=>`<option value="${i.nome}" ${i.nome===v?'selected':''}>${i.nome}</option>`).join('');
+    sel.innerHTML=`<option value="">-- selecione insumo --</option>${opts}`;
+  });
+  calcRecCusto();
+}
 function calcRecCusto(){
   let tot=0;
   ingIds.forEach(id=>{
@@ -619,8 +632,23 @@ function editRec(i){
   document.getElementById('rec-id').value=r.id;document.getElementById('rec-nome').value=r.nome;
   document.getElementById('rec-cat').value=r.cat;document.getElementById('rec-rend').value=r.rend;document.getElementById('rec-obs').value=r.obs||'';
   ingIds=[];document.getElementById('ing-rows').innerHTML='';
-  (r.ings||[]).forEach(ing=>{addIng();const id=ingIds[ingIds.length-1];const row=document.getElementById('ir-'+id);row.querySelector('select').value=ing.nome;row.querySelector('input').value=ing.qtd});
-  calcRecCusto();sitab('rec','nova',document.querySelectorAll('#pg-receitas .itab')[1]);
+  document.getElementById('ing-empty').style.display='none';
+  (r.ings||[]).forEach(ing=>{
+    addIng();
+    const id=ingIds[ingIds.length-1];
+    const row=document.getElementById('ir-'+id);
+    // Aguarda o DOM e seta o valor correto
+    const sel=row.querySelector('select');
+    sel.value=ing.nome;
+    if(!sel.value) { // fallback: adiciona a opção se não existir no select
+      const opt=document.createElement('option');
+      opt.value=ing.nome;opt.textContent=ing.nome;
+      sel.appendChild(opt);sel.value=ing.nome;
+    }
+    row.querySelector('input').value=ing.qtd;
+  });
+  calcRecCusto();
+  sitab('rec','nova',document.querySelectorAll('#pg-receitas .itab')[1]);
 }
 
 // ── PRECIFICAÇÃO ──────────────────────────────────────────────────────────────
