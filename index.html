@@ -303,14 +303,21 @@ tr:hover td{background:rgba(255,255,255,.018)}
         <div class="fg"><label class="fl">Custo total</label><input type="number" id="v-custo" step="0.01" min="0" oninput="calcVenda()" style="color:var(--red)"></div>
         <div class="fg"><label class="fl">Valor cobrado (R$)</label><input type="number" id="v-cobr" step="0.01" min="0" oninput="calcVenda()"></div>
       </div>
-      <div id="v-prev" style="display:none;background:var(--bg3);border-radius:var(--r);padding:10px;margin:8px 0">
-        <div class="g3" style="text-align:center">
-          <div><div style="font-size:10px;color:var(--text3)">Lucro</div><div class="tm" style="color:var(--green)" id="vp-luc">R$ 0,00</div></div>
-          <div><div style="font-size:10px;color:var(--text3)">Margem</div><div class="tm" style="color:var(--amber)" id="vp-mg">0%</div></div>
+      <div id="v-prev" style="display:none;background:var(--surf);border:1px solid var(--gold);border-radius:var(--rlg);padding:14px;margin:10px 0">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">Prévia desta venda</div>
+        <div class="g3" style="text-align:center;margin-bottom:10px">
+          <div><div style="font-size:10px;color:var(--text3)">Lucro</div><div class="tm" style="color:var(--green);font-size:15px" id="vp-luc">R$ 0,00</div></div>
+          <div><div style="font-size:10px;color:var(--text3)">Margem</div><div class="tm" style="color:var(--amber);font-size:15px" id="vp-mg">0%</div></div>
           <div><div style="font-size:10px;color:var(--text3)">Preço sugerido</div><div class="tm" style="color:var(--text2)" id="vp-sug">—</div></div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;text-align:center;background:var(--bg3);border-radius:var(--r);padding:8px">
+          <div><div style="font-size:9px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em">Caixa 30%</div><div class="tm" style="color:var(--blue);font-size:12px" id="vdiv-cx2">—</div></div>
+          <div><div style="font-size:9px;color:var(--purple);text-transform:uppercase;letter-spacing:.08em">Reserva 20%</div><div class="tm" style="color:var(--purple);font-size:12px" id="vdiv-rv2">—</div></div>
+          <div><div style="font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.08em">Mari 25%</div><div class="tm" style="color:var(--amber);font-size:12px" id="vdiv-mr2">—</div></div>
+          <div><div style="font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.08em">Sônia 25%</div><div class="tm" style="color:var(--green);font-size:12px" id="vdiv-sn2">—</div></div>
+        </div>
       </div>
-      <button class="btn-gold" style="width:100%" onclick="regVenda()">Registrar Venda</button>
+      <button class="btn-gold" style="width:100%;padding:12px;font-size:15px" onclick="regVenda()">✔ Registrar Venda</button>
       <div id="v-al"></div>
     </div>
     <div class="card"><div class="ct">Divisão · esta venda</div>
@@ -556,10 +563,23 @@ function delIng(id){ingIds=ingIds.filter(x=>x!==id);document.getElementById('ir-
 function renderIngSel(){document.querySelectorAll('#ing-rows select').forEach(sel=>{const v=sel.value;sel.innerHTML='<option value="">-- selecione --</option>'+S.insumos.map(i=>`<option ${i.nome===v?'selected':''}>${i.nome}</option>`).join('')})}
 function calcRecCusto(){
   let tot=0;
-  ingIds.forEach(id=>{const row=document.getElementById('ir-'+id);if(!row)return;const sel=row.querySelector('select'),inp=row.querySelector('input'),badge=document.getElementById('ic-'+id);const cpg=getCpg(sel.value),qtd=+inp.value||0,c=r2(cpg*qtd);tot+=c;badge.textContent=brl(c);badge.style.color=c>0?'var(--green)':'var(--text3)'});
+  ingIds.forEach(id=>{
+    const row=document.getElementById('ir-'+id);if(!row)return;
+    const sel=row.querySelector('select'),inp=row.querySelector('input'),badge=document.getElementById('ic-'+id);
+    const cpg=getCpg(sel.value),qtd=+inp.value||0,c=r2(cpg*qtd);
+    tot=r2(tot+c);
+    // Mostra custo de cada ingrediente em tempo real
+    badge.textContent=brl(c);
+    badge.style.color=c>0?'var(--green)':'var(--text3)';
+  });
   const rend=+document.getElementById('rec-rend').value||1;
-  document.getElementById('rec-tot').textContent=brl(r2(tot));
-  document.getElementById('rec-unit').textContent=brl(r2(tot/rend));
+  const unit=r2(tot/rend);
+  document.getElementById('rec-tot').textContent=brl(tot);
+  document.getElementById('rec-unit').textContent=brl(unit);
+  // Atualiza preço sugerido com margem 50% (padrão doces)
+  const sug=r2(unit/(1-0.03-0.50));
+  const recTotEl=document.getElementById('rec-unit');
+  if(recTotEl) recTotEl.title=`Preço sugerido 50%: ${new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(sug)}`;
 }
 async function salvarRec(){
   const nome=document.getElementById('rec-nome').value.trim();
@@ -611,6 +631,7 @@ function calcPreco(){
   if(!rec){document.getElementById('pr-resultado').style.display='none';return}
   const embal=+document.getElementById('pr-embal').value||0,varP=+document.getElementById('pr-var').value||0;
   const marg=+document.getElementById('pr-marg').value||50,qtd=+document.getElementById('pr-qtd').value||1;
+  // Fórmula exata da planilha LADOM: Preço = (custo_unit + embalagem) / (1 - custos_var% - margem%)
   const cu=r2(+rec.custo_unit+embal),preco=r2(cu/(1-varP/100-marg/100)),lu=r2(preco-cu),mr=preco>0?lu/preco:0;
   document.getElementById('pr-resultado').style.display='';
   document.getElementById('pr-nome').textContent=rec.nome;document.getElementById('pr-custo').textContent=brl(cu);
@@ -639,9 +660,55 @@ async function delCard(id){setStatus('load','...');try{await apiDelete('cardapio
 
 // ── VENDAS ────────────────────────────────────────────────────────────────────
 function popSelVenda(){const sel=document.getElementById('v-prod'),v=sel.value;sel.innerHTML='<option value="">-- selecione --</option>'+S.cardapio.map(c=>`<option value="${c.rec_nome}">${c.rec_nome} · ${brl(c.preco)}</option>`).join('');if(v)sel.value=v}
-function preencherVenda(){const nome=document.getElementById('v-prod').value,item=S.cardapio.find(c=>c.rec_nome===nome);if(!item)return;const qtd=+document.getElementById('v-qtd').value||1;document.getElementById('v-custo').value=r2(item.custo_unit*qtd);document.getElementById('v-cobr').value=r2(item.preco*qtd);document.getElementById('vp-sug').textContent=brl(r2(item.preco*qtd));calcVenda()}
-function atualizarVenda(){const nome=document.getElementById('v-prod').value,item=S.cardapio.find(c=>c.rec_nome===nome),qtd=+document.getElementById('v-qtd').value||1;if(item){document.getElementById('v-custo').value=r2(item.custo_unit*qtd);document.getElementById('v-cobr').value=r2(item.preco*qtd)}calcVenda()}
-function calcVenda(){const custo=+document.getElementById('v-custo').value||0,cobr=+document.getElementById('v-cobr').value||0,lucro=r2(cobr-custo),mg=cobr>0?lucro/cobr:0;document.getElementById('vp-luc').textContent=brl(lucro);document.getElementById('vp-mg').textContent=pct(mg);document.getElementById('vdiv-cx').textContent=brl(r2(lucro*.3));document.getElementById('vdiv-rv').textContent=brl(r2(lucro*.2));document.getElementById('vdiv-mr').textContent=brl(r2(lucro*.25));document.getElementById('vdiv-sn').textContent=brl(r2(lucro*.25));document.getElementById('v-prev').style.display=cobr>0?'':'none'}
+function preencherVenda(){
+  const nome=document.getElementById('v-prod').value;
+  const item=S.cardapio.find(c=>c.rec_nome===nome);
+  if(!item){calcVenda();return;}
+  const qtd=+document.getElementById('v-qtd').value||1;
+  // Preenche automaticamente custo (do cardápio) e preço sugerido
+  document.getElementById('v-custo').value=r2(item.custo_unit*qtd);
+  document.getElementById('v-cobr').value=r2(item.preco*qtd);
+  document.getElementById('vp-sug').textContent=brl(r2(item.preco*qtd));
+  calcVenda();
+}
+function atualizarVenda(){
+  const nome=document.getElementById('v-prod').value;
+  const item=S.cardapio.find(c=>c.rec_nome===nome);
+  const qtd=+document.getElementById('v-qtd').value||1;
+  if(item){
+    document.getElementById('v-custo').value=r2(item.custo_unit*qtd);
+    document.getElementById('v-cobr').value=r2(item.preco*qtd);
+    document.getElementById('vp-sug').textContent=brl(r2(item.preco*qtd));
+  }
+  calcVenda();
+}
+function calcVenda(){
+  const custo=+document.getElementById('v-custo').value||0;
+  const cobr=+document.getElementById('v-cobr').value||0;
+  const lucro=r2(cobr-custo);
+  const mg=cobr>0?lucro/cobr:0;
+  // Divisão do lucro: igual à planilha LADOM
+  // Caixa 30% | Reserva 20% | Mari 25% | Sônia 25% do LUCRO
+  const caixa=r2(lucro*0.30), reserva=r2(lucro*0.20), mari=r2(lucro*0.25), sonia=r2(lucro*0.25);
+  document.getElementById('vp-luc').textContent=brl(lucro);
+  document.getElementById('vp-mg').textContent=pct(mg);
+  document.getElementById('vdiv-cx').textContent=brl(caixa);
+  document.getElementById('vdiv-rv').textContent=brl(reserva);
+  document.getElementById('vdiv-mr').textContent=brl(mari);
+  document.getElementById('vdiv-sn').textContent=brl(sonia);
+  document.getElementById('v-prev').style.display=cobr>0?'':'none';
+  // Atualizar preview da divisão (inline no card)
+  const el2cx=document.getElementById('vdiv-cx2');
+  const el2rv=document.getElementById('vdiv-rv2');
+  const el2mr=document.getElementById('vdiv-mr2');
+  const el2sn=document.getElementById('vdiv-sn2');
+  if(el2cx){el2cx.textContent=brl(caixa);el2rv.textContent=brl(reserva);el2mr.textContent=brl(mari);el2sn.textContent=brl(sonia);}
+  // Atualizar preço sugerido do cardápio
+  const nome=document.getElementById('v-prod').value;
+  const item=S.cardapio.find(c=>c.rec_nome===nome);
+  const qtd=+document.getElementById('v-qtd').value||1;
+  if(item) document.getElementById('vp-sug').textContent=brl(r2(item.preco*qtd));
+}
 document.getElementById('v-qtd').addEventListener('input',atualizarVenda);
 async function regVenda(){
   const prod=document.getElementById('v-prod').value,cobr=+document.getElementById('v-cobr').value||0;
@@ -652,9 +719,12 @@ async function regVenda(){
   const lucro=r2(cobr-custo);
   loading(true);setStatus('load','salvando...');
   try{
-    await apiPost('insert','vendas',{id:uid(),mes,data:data||'',prod,qtd,custo:r2(custo),cobrado:r2(cobr),lucro,margem:cobr>0?r2(lucro/cobr):0,caixa:r2(lucro*.3),reserva:r2(lucro*.2),mari:r2(lucro*.25),sonia:r2(lucro*.25)});
+    // Cálculos idênticos à planilha LADOM
+    const margem=cobr>0?r2(lucro/cobr):0;
+    const caixa=r2(lucro*0.30), reserva=r2(lucro*0.20), mari=r2(lucro*0.25), sonia=r2(lucro*0.25);
+    await apiPost('insert','vendas',{id:uid(),mes,data:data||'',prod,qtd,custo:r2(custo),cobrado:r2(cobr),lucro,margem,caixa,reserva,mari,sonia});
     await loadAll();renderVendas();
-    showAl('v-al',`Salvo! Lucro: ${brl(lucro)} · Mari: ${brl(r2(lucro*.25))} · Sônia: ${brl(r2(lucro*.25))}`);
+    showAl('v-al',`✅ Venda salva! Lucro: ${brl(lucro)} · Caixa: ${brl(r2(lucro*0.30))} · Reserva: ${brl(r2(lucro*0.20))} · Mari: ${brl(r2(lucro*0.25))} · Sônia: ${brl(r2(lucro*0.25))}`);
     document.getElementById('v-cobr').value='';calcVenda();setStatus('ok','salvo · Sheets');
   }catch(e){setStatus('err','erro');showAl('v-al','Erro: '+e.message,'e');}
   loading(false);
