@@ -513,8 +513,29 @@ async function salvarIns(){
   setStatus('load','salvando...');
   try{
     await apiPost('upsert','insumos',{id,nome,emb,preco,cpg},{uniqueField:'nome'});
-    await loadAll(); renderIns();
-    showAl('ins-al','Insumo salvo!');limparIns();setStatus('ok','salvo · Sheets');
+    // Guarda custos antes para comparar o que mudou
+    const antes=Object.fromEntries(S.receitas.map(r=>[r.nome,r.custo_unit]));
+    const antesCard=Object.fromEntries(S.cardapio.map(c=>[c.rec_nome,c.preco]));
+    await loadAll();
+    renderIns();
+    // Descobre receitas e itens de cardápio que mudaram
+    const recMudadas=S.receitas.filter(r=>antes[r.nome]!==undefined&&Math.abs(r.custo_unit-(antes[r.nome]||0))>0.001);
+    const cardMudados=S.cardapio.filter(c=>antesCard[c.rec_nome]!==undefined&&Math.abs(c.preco-(antesCard[c.rec_nome]||0))>0.001);
+    // Persiste os novos custos no banco (receitas e cardápio)
+    for(const r of recMudadas){
+      await apiPost('update','receitas',{custo_total:r.custo_total,custo_unit:r.custo_unit},{id:r.id});
+    }
+    for(const c of cardMudados){
+      await apiPost('update','cardapio',{custo_unit:c.custo_unit,preco:c.preco,lucro_unit:c.lucro_unit,marg_real:c.marg_real},{id:c.id});
+    }
+    // Monta mensagem de resumo
+    let msg='✅ Insumo salvo!';
+    if(recMudadas.length||cardMudados.length){
+      msg+=` · ${recMudadas.length} receita(s) e ${cardMudados.length} preço(s) recalculados automaticamente.`;
+    }
+    showAl('ins-al',msg);
+    limparIns();
+    setStatus('ok','salvo · recalculado');
   }catch(e){setStatus('err','erro');showAl('ins-al','Erro: '+e.message,'e');}
 }
 function limparIns(){['ins-id','ins-nome','ins-emb','ins-preco','ins-cpg'].forEach(id=>document.getElementById(id).value='')}
@@ -646,14 +667,29 @@ async function salvarRec(){
   const cat=document.getElementById('rec-cat').value;
   const obs=document.getElementById('rec-obs').value;
   const ings=ingIds.map(({id,tipo})=>{const row=document.getElementById('ir-'+id);if(!row)return null;return{nome:row.querySelector('select').value,qtd:+row.querySelector('input').value||0,tipo:tipo||'insumo'}}).filter(i=>i&&i.nome&&i.qtd>0);
-  const ct=ings.reduce((s,i)=>s+r2(getCpg(i.nome)*i.qtd),0);
+  // Calcula custo usando insumos e sub-receitas atuais em memória
+  const ct=ings.reduce((s,i)=>{
+    if(i.tipo==='receita'){
+      const sub=S.receitas.find(r=>r.nome===i.nome);
+      return s+r2((sub?+sub.custo_unit:0)*i.qtd);
+    }
+    return s+r2(getCpg(i.nome)*i.qtd);
+  },0);
   const recId=document.getElementById('rec-id').value||uid();
   loading(true);setStatus('load','salvando...');
   try{
     await apiPost('upsert','receitas',{id:recId,nome,cat,rend,obs,custo_total:r2(ct),custo_unit:r2(ct/rend)},{uniqueField:'nome'});
     await apiDeleteWhere('receita_ings','receita_id:'+recId);
     for(const ing of ings) await apiPost('insert','receita_ings',{id:uid(),receita_id:recId,nome:ing.nome,qtd:ing.qtd,tipo:ing.tipo||'insumo'});
-    await loadAll();renderRecLista();showAl('rec-al','Receita salva!');setStatus('ok','salvo');
+    await loadAll();
+    // Atualiza cardápio que usa esta receita (preço muda se custo mudou)
+    const noCard=S.cardapio.filter(c=>c.rec_nome===nome);
+    for(const c of noCard){
+      await apiPost('update','cardapio',{custo_unit:c.custo_unit,preco:c.preco,lucro_unit:c.lucro_unit,marg_real:c.marg_real},{id:c.id});
+    }
+    renderRecLista();
+    showAl('rec-al',`✅ Receita salva!${noCard.length?' · Cardápio atualizado.':''}`);
+    setStatus('ok','salvo');
     ingIds=[];document.getElementById('ing-rows').innerHTML='';document.getElementById('ing-empty').style.display='';
     document.getElementById('rec-id').value='';
   }catch(e){setStatus('err','erro');showAl('rec-al','Erro: '+e.message,'e');}
@@ -988,6 +1024,87 @@ function renderDash(){
   pel.innerHTML=prox.slice(0,4).map(ev=>{const pago=r2(ev.parcelas.filter(p=>p.pago==='true'||p.pago===true).reduce((s,p)=>s+(+p.valor),0)),falta=r2((+ev.total)-pago),dias=Math.round((new Date((ev.data||'2099')+'T00:00:00')-h)/864e5);return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.03)"><div style="width:32px;height:32px;border-radius:6px;background:${dias<=3?'var(--red-bg)':dias<=7?'var(--amber-bg)':'var(--teal-bg)'};display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:11px;color:${dias<=3?'var(--red)':dias<=7?'var(--amber)':'var(--teal)'};font-weight:600;flex-shrink:0">${dias}d</div><div style="flex:1"><div style="font-size:12px;font-weight:500;color:var(--text)">${ev.nome}</div><div style="font-size:10px;color:var(--text3)">${ev.data||''}${ev.local?' · '+ev.local:''}</div></div><div style="text-align:right"><div class="tm" style="color:var(--gold2);font-size:11px">${brl(ev.total)}</div>${falta>0?`<div style="font-size:10px;color:var(--red)">falta ${brl(falta)}</div>`:'<div style="font-size:10px;color:var(--green)">pago</div>'}</div></div>`}).join('');
 }
 
+// ── RECALCULAR CUSTOS DINAMICAMENTE ──────────────────────────────────────────
+// Recalcula custo_total e custo_unit de TODAS as receitas com base nos
+// insumos atuais em S.insumos — sem depender dos valores salvos no banco.
+// Resolve dependências em ordem: receitas simples primeiro, depois compostas.
+function recalcularCustos(){
+  // Mapa de cpg por insumo (custo por grama)
+  const cpgMap={};
+  S.insumos.forEach(i=>{ cpgMap[i.nome]=+i.cpg||0; });
+
+  // Mapa de custo_unit por receita (começa vazio, preenchido em ordem)
+  const recCustoMap={};
+
+  // Calcula custo de uma receita resolvendo dependências recursivamente
+  function calcCustoRec(rec, visitados=new Set()){
+    if(recCustoMap[rec.nome]!==undefined) return recCustoMap[rec.nome];
+    if(visitados.has(rec.nome)) return 0; // evita loop circular
+    visitados.add(rec.nome);
+
+    let total=0;
+    (rec.ings||[]).forEach(ing=>{
+      const qtd=+ing.qtd||0;
+      const tipo=ing.tipo||'insumo';
+      if(tipo==='receita'){
+        // Sub-receita: busca a receita pelo nome e calcula seu custo/g
+        const subRec=S.receitas.find(r=>r.nome===ing.nome);
+        if(subRec){
+          const subCustoUnit=calcCustoRec(subRec, new Set(visitados));
+          // custo_unit é R$ por unidade de rendimento;
+          // como qtd é em gramas, usamos custo_unit diretamente como R$/g
+          total=r2(total + r2(subCustoUnit * qtd));
+        }
+      } else {
+        // Insumo bruto: cpg × qtd
+        const cpg=cpgMap[ing.nome]||0;
+        total=r2(total + r2(cpg * qtd));
+      }
+    });
+
+    const rend=+rec.rend||1;
+    const custoUnit=r2(total/rend);
+    recCustoMap[rec.nome]=custoUnit;
+    return custoUnit;
+  }
+
+  // Recalcula todas as receitas e atualiza S.receitas em memória
+  S.receitas=S.receitas.map(rec=>{
+    const custo_total=(() => {
+      let tot=0;
+      (rec.ings||[]).forEach(ing=>{
+        const qtd=+ing.qtd||0;
+        const tipo=ing.tipo||'insumo';
+        if(tipo==='receita'){
+          const subRec=S.receitas.find(r=>r.nome===ing.nome);
+          if(subRec) tot=r2(tot + r2((recCustoMap[ing.nome]||calcCustoRec(subRec))*qtd));
+        } else {
+          tot=r2(tot + r2((cpgMap[ing.nome]||0)*qtd));
+        }
+      });
+      return tot;
+    })();
+    const rend=+rec.rend||1;
+    const custo_unit=r2(custo_total/rend);
+    recCustoMap[rec.nome]=custo_unit; // registra para sub-receitas usarem
+    return {...rec, custo_total, custo_unit};
+  });
+
+  // Recalcula cardápio: atualiza custo_unit e recalcula preço com mesma margem/embal
+  S.cardapio=S.cardapio.map(c=>{
+    const rec=S.receitas.find(r=>r.nome===c.rec_nome);
+    if(!rec) return c;
+    const embal=+c.embal||0;
+    const varP=+c.var_p||0;
+    const marg=+c.marg||0;
+    const custo_unit=r2(rec.custo_unit+embal);
+    const preco=marg>0&&varP<1?r2(custo_unit/(1-varP-marg)):c.preco;
+    const lucro_unit=r2(preco-custo_unit);
+    const marg_real=preco>0?r2(lucro_unit/preco):0;
+    return {...c, custo_unit, preco, lucro_unit, marg_real};
+  });
+}
+
 // ── CARREGAR TODOS OS DADOS ───────────────────────────────────────────────────
 async function loadAll(){
   const [ins,recs,ings,card,vend,evs,evIt,evPar]=await Promise.all([
@@ -1000,6 +1117,8 @@ async function loadAll(){
   S.cardapio=card;
   S.vendas=vend;
   S.eventos=evs.map(ev=>({...ev,itens:evIt.filter(i=>i.evento_id===ev.id),parcelas:evPar.filter(p=>p.evento_id===ev.id).sort((a,b)=>(+a.num)-(+b.num))}));
+  // Recalcula todos os custos com os insumos atuais
+  recalcularCustos();
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
