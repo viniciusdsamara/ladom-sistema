@@ -228,15 +228,20 @@ tr:hover td{background:rgba(255,255,255,.018)}
       </div>
     </div>
     <div class="card" style="margin-top:14px">
-      <div class="ct">Ingredientes <button class="btn-ghost btn-sm" onclick="addIng()">+ Adicionar</button></div>
+      <div class="ct">Ingredientes
+        <div style="display:flex;gap:6px">
+          <button class="btn-ghost btn-sm" onclick="addIng('insumo')">+ Insumo</button>
+          <button class="btn-teal btn-sm" onclick="addIng('receita')">+ Sub-receita</button>
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:6px;padding:0 2px">
-        <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em">Ingrediente</span>
+        <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em">Ingrediente / Sub-receita</span>
         <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em">Qtd (g)</span>
         <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em">Custo</span>
         <span></span>
       </div>
       <div id="ing-rows"></div>
-      <div id="ing-empty" style="text-align:center;padding:14px;color:var(--text3);font-size:12px">Clique em "Adicionar"</div>
+      <div id="ing-empty" style="text-align:center;padding:14px;color:var(--text3);font-size:12px">Clique em "+ Insumo" ou "+ Sub-receita"</div>
     </div>
   </div>
 </div>
@@ -246,7 +251,7 @@ tr:hover td{background:rgba(255,255,255,.018)}
   <div class="page-title">Precificação</div><div class="page-sub">calcule o preço e monte o cardápio</div>
   <div class="g2">
     <div class="card"><div class="ct">Calculadora</div>
-      <div class="fg"><label class="fl">Receita</label><select id="pr-rec" onchange="calcPreco()"><option value="">-- selecione --</option></select></div>
+      <div class="fg"><label class="fl">Receita</label><select id="pr-rec" onchange="onSelRec()"><option value="">-- selecione --</option></select></div>
       <div class="frow fc2">
         <div class="fg"><label class="fl">Embalagem (R$)</label><input type="number" id="pr-embal" value="0.30" step="0.01" min="0" oninput="calcPreco()"></div>
         <div class="fg"><label class="fl">Custos variáveis (%)</label><input type="number" id="pr-var" value="3" step="0.5" min="0" oninput="calcPreco()"></div>
@@ -551,37 +556,76 @@ async function loadPadrao(){
 
 // ── RECEITAS ──────────────────────────────────────────────────────────────────
 let ingIds=[];
-function addIng(){
-  if(!S.insumos.length){
-    showAl('rec-al','Cadastre insumos antes de criar receitas.','w');
-    return;
-  }
+// tipo = 'insumo' | 'receita'
+function addIng(tipo='insumo'){
+  if(tipo==='insumo'&&!S.insumos.length){showAl('rec-al','Cadastre insumos antes de criar receitas.','w');return;}
+  if(tipo==='receita'&&!S.receitas.length){showAl('rec-al','Cadastre receitas base antes.','w');return;}
   document.getElementById('ing-empty').style.display='none';
-  const id=uid();ingIds.push(id);
+  const id=uid();
+  ingIds.push({id,tipo});
   const d=document.createElement('div');d.id='ir-'+id;
   d.style.cssText='display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:6px';
-  // Sempre usa S.insumos atualizado no momento do clique
-  const opts=S.insumos.map(i=>`<option value="${i.nome}">${i.nome}</option>`).join('');
-  d.innerHTML=`<select onchange="calcRecCusto()" style="width:100%"><option value="">-- selecione insumo --</option>${opts}</select><input type="number" placeholder="gramas" min="0" step="0.1" oninput="calcRecCusto()" style="width:100%"><div style="background:var(--bg3);border-radius:6px;padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--text3)" id="ic-${id}">R$ 0,00</div><button class="btn-danger" onclick="delIng('${id}')">✕</button>`;
+  // Badge colorido por tipo
+  const badge=tipo==='receita'
+    ?`<span style="font-size:9px;background:var(--teal-bg);color:var(--teal);border-radius:4px;padding:1px 5px;white-space:nowrap">receita</span>`
+    :`<span style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:4px;padding:1px 5px;white-space:nowrap">insumo</span>`;
+  const placeholder=tipo==='receita'?'gramas da receita':'gramas';
+  const opts=tipo==='insumo'
+    ? S.insumos.map(i=>`<option value="${i.nome}">${i.nome}</option>`).join('')
+    : S.receitas.map(r=>`<option value="${r.nome}">${r.nome}</option>`).join('');
+  const label=tipo==='insumo'?'-- selecione insumo --':'-- selecione receita --';
+  d.innerHTML=`
+    <div style="display:flex;align-items:center;gap:5px">
+      ${badge}
+      <select onchange="calcRecCusto()" style="flex:1;min-width:0"  data-tipo="${tipo}">
+        <option value="">${label}</option>${opts}
+      </select>
+    </div>
+    <input type="number" placeholder="${placeholder}" min="0" step="0.1" oninput="calcRecCusto()" style="width:100%">
+    <div style="background:var(--bg3);border-radius:6px;padding:6px 8px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--text3)" id="ic-${id}">R$ 0,00</div>
+    <button class="btn-danger" onclick="delIng('${id}')">✕</button>`;
   document.getElementById('ing-rows').appendChild(d);
 }
-function delIng(id){ingIds=ingIds.filter(x=>x!==id);document.getElementById('ir-'+id)?.remove();if(!ingIds.length)document.getElementById('ing-empty').style.display='';calcRecCusto()}
+function delIng(id){ingIds=ingIds.filter(x=>x.id!==id);document.getElementById('ir-'+id)?.remove();if(!ingIds.length)document.getElementById('ing-empty').style.display='';calcRecCusto();}
 function renderIngSel(){
   document.querySelectorAll('#ing-rows select').forEach(sel=>{
     const v=sel.value;
-    const opts=S.insumos.map(i=>`<option value="${i.nome}" ${i.nome===v?'selected':''}>${i.nome}</option>`).join('');
-    sel.innerHTML=`<option value="">-- selecione insumo --</option>${opts}`;
+    const tipo=sel.dataset.tipo||'insumo';
+    const opts=tipo==='receita'
+      ? S.receitas.map(r=>`<option value="${r.nome}" ${r.nome===v?'selected':''}>${r.nome}</option>`).join('')
+      : S.insumos.map(i=>`<option value="${i.nome}" ${i.nome===v?'selected':''}>${i.nome}</option>`).join('');
+    const label=tipo==='receita'?'-- selecione receita --':'-- selecione insumo --';
+    sel.innerHTML=`<option value="">${label}</option>${opts}`;
+    if(v) sel.value=v;
   });
   calcRecCusto();
 }
+function getSubRecCpg(nome){
+  // Retorna custo por grama de uma sub-receita (custo_total / rendimento_em_gramas)
+  // Como rendimento é em unidades, usamos custo_unit diretamente por grama
+  const rec=S.receitas.find(r=>r.nome===nome);
+  if(!rec) return 0;
+  // custo_unit = custo por unidade; para sub-receitas usamos custo_total dividido pelo rend em g
+  // Na planilha os ingredientes de receita são medidos em gramas, então:
+  // cpg = custo_total / (rend * peso_medio) - mas como não temos peso, usamos custo_unit como R$/g
+  // O usuário informa a qtd em gramas e o sistema usa custo_unit como referência por grama
+  return +rec.custo_unit; // R$ por grama da sub-receita
+}
 function calcRecCusto(){
   let tot=0;
-  ingIds.forEach(id=>{
+  ingIds.forEach(({id,tipo})=>{
     const row=document.getElementById('ir-'+id);if(!row)return;
     const sel=row.querySelector('select'),inp=row.querySelector('input'),badge=document.getElementById('ic-'+id);
-    const cpg=getCpg(sel.value),qtd=+inp.value||0,c=r2(cpg*qtd);
+    const qtd=+inp.value||0;
+    let c=0;
+    if(tipo==='receita'){
+      // Sub-receita: custo = custo_unit * qtd (custo_unit = R$ por grama)
+      c=r2(getSubRecCpg(sel.value)*qtd);
+    } else {
+      // Insumo: custo = custo_por_grama * qtd
+      c=r2(getCpg(sel.value)*qtd);
+    }
     tot=r2(tot+c);
-    // Mostra custo de cada ingrediente em tempo real
     badge.textContent=brl(c);
     badge.style.color=c>0?'var(--green)':'var(--text3)';
   });
@@ -601,14 +645,14 @@ async function salvarRec(){
   const rend=+document.getElementById('rec-rend').value||1;
   const cat=document.getElementById('rec-cat').value;
   const obs=document.getElementById('rec-obs').value;
-  const ings=ingIds.map(id=>{const row=document.getElementById('ir-'+id);return{nome:row.querySelector('select').value,qtd:+row.querySelector('input').value||0}}).filter(i=>i.nome&&i.qtd>0);
+  const ings=ingIds.map(({id,tipo})=>{const row=document.getElementById('ir-'+id);if(!row)return null;return{nome:row.querySelector('select').value,qtd:+row.querySelector('input').value||0,tipo:tipo||'insumo'}}).filter(i=>i&&i.nome&&i.qtd>0);
   const ct=ings.reduce((s,i)=>s+r2(getCpg(i.nome)*i.qtd),0);
   const recId=document.getElementById('rec-id').value||uid();
   loading(true);setStatus('load','salvando...');
   try{
     await apiPost('upsert','receitas',{id:recId,nome,cat,rend,obs,custo_total:r2(ct),custo_unit:r2(ct/rend)},{uniqueField:'nome'});
     await apiDeleteWhere('receita_ings','receita_id:'+recId);
-    for(const ing of ings) await apiPost('insert','receita_ings',{id:uid(),receita_id:recId,nome:ing.nome,qtd:ing.qtd});
+    for(const ing of ings) await apiPost('insert','receita_ings',{id:uid(),receita_id:recId,nome:ing.nome,qtd:ing.qtd,tipo:ing.tipo||'insumo'});
     await loadAll();renderRecLista();showAl('rec-al','Receita salva!');setStatus('ok','salvo');
     ingIds=[];document.getElementById('ing-rows').innerHTML='';document.getElementById('ing-empty').style.display='';
     document.getElementById('rec-id').value='';
@@ -634,13 +678,13 @@ function editRec(i){
   ingIds=[];document.getElementById('ing-rows').innerHTML='';
   document.getElementById('ing-empty').style.display='none';
   (r.ings||[]).forEach(ing=>{
-    addIng();
-    const id=ingIds[ingIds.length-1];
-    const row=document.getElementById('ir-'+id);
-    // Aguarda o DOM e seta o valor correto
+    const tipo=ing.tipo||'insumo';
+    addIng(tipo);
+    const entry=ingIds[ingIds.length-1];
+    const row=document.getElementById('ir-'+entry.id);
     const sel=row.querySelector('select');
     sel.value=ing.nome;
-    if(!sel.value) { // fallback: adiciona a opção se não existir no select
+    if(!sel.value){
       const opt=document.createElement('option');
       opt.value=ing.nome;opt.textContent=ing.nome;
       sel.appendChild(opt);sel.value=ing.nome;
@@ -652,7 +696,37 @@ function editRec(i){
 }
 
 // ── PRECIFICAÇÃO ──────────────────────────────────────────────────────────────
-function popSelRec(){const sel=document.getElementById('pr-rec'),v=sel.value;sel.innerHTML='<option value="">-- selecione --</option>'+S.receitas.map(r=>`<option value="${r.nome}">${r.nome} (custo: ${brl(r.custo_unit)}/un)</option>`).join('');if(v)sel.value=v}
+function popSelRec(){
+  const sel=document.getElementById('pr-rec'),v=sel.value;
+  sel.innerHTML='<option value="">-- selecione --</option>'+S.receitas.map(r=>`<option value="${r.nome}">${r.nome} (custo: ${brl(r.custo_unit)}/un)</option>`).join('');
+  if(v)sel.value=v;
+}
+function onSelRec(){
+  const nome=document.getElementById('pr-rec').value;
+  // Se já está no cardápio, carrega embalagem e margem salvos
+  const noCard=S.cardapio.find(c=>c.rec_nome===nome);
+  if(noCard){
+    document.getElementById('pr-embal').value=+noCard.embal||0.30;
+    document.getElementById('pr-var').value=+(noCard.var_p)||3;
+    document.getElementById('pr-marg').value=Math.round(+(noCard.marg)*100)||50;
+  } else {
+    // Sugerir embalagem e margem pelo tipo de receita
+    const rec=S.receitas.find(r=>r.nome===nome);
+    if(rec){
+      if(rec.cat==='ovo'){
+        document.getElementById('pr-embal').value=nome.includes('Kit')?3.40:5.00;
+        document.getElementById('pr-marg').value=65;
+      } else if(rec.cat==='macaron'){
+        document.getElementById('pr-embal').value=0;
+        document.getElementById('pr-marg').value=50;
+      } else {
+        document.getElementById('pr-embal').value=0.30;
+        document.getElementById('pr-marg').value=50;
+      }
+    }
+  }
+  calcPreco();
+}
 function setM(m){document.getElementById('pr-marg').value=m;calcPreco()}
 function calcPreco(){
   const nome=document.getElementById('pr-rec').value,rec=S.receitas.find(r=>r.nome===nome);
