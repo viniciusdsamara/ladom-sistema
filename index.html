@@ -774,13 +774,17 @@ function calcPreco(){
   const embal=+document.getElementById('pr-embal').value||0,varP=+document.getElementById('pr-var').value||0;
   const marg=+document.getElementById('pr-marg').value||50,qtd=+document.getElementById('pr-qtd').value||1;
   // Fórmula exata da planilha LADOM: Preço = (custo_unit + embalagem) / (1 - custos_var% - margem%)
-  const cu=r2(+rec.custo_unit+embal),preco=r2(cu/(1-varP/100-marg/100)),lu=r2(preco-cu),mr=preco>0?lu/preco:0;
+  const custoRec=r2(+rec.custo_unit);           // custo PURO da receita (sem embalagem)
+  const cu=r2(custoRec+embal);                  // custo total com embalagem (só para exibição e preço)
+  const preco=r2(cu/(1-varP/100-marg/100));
+  const lu=r2(preco-cu),mr=preco>0?lu/preco:0;
   document.getElementById('pr-resultado').style.display='';
   document.getElementById('pr-nome').textContent=rec.nome;document.getElementById('pr-custo').textContent=brl(cu);
   document.getElementById('pr-preco').textContent=brl(preco);document.getElementById('pr-lucro').textContent=brl(lu);
   document.getElementById('pr-qtdl').textContent=qtd;document.getElementById('pr-total').textContent=brl(r2(preco*qtd));
   document.getElementById('pr-ltotal').textContent=brl(r2(lu*qtd));document.getElementById('pr-mreal').textContent=pct(mr);
-  window._pc={id:uid(),rec_nome:nome,custo_unit:cu,embal,var_p:varP,marg,preco,lucro_unit:lu,marg_real:mr};
+  // Salva custo_unit SEM embalagem — embalagem fica separada para não dobrar no recalculo
+  window._pc={id:uid(),rec_nome:nome,custo_unit:custoRec,embal,var_p:varP,marg,preco,lucro_unit:lu,marg_real:mr};
 }
 async function salvarCardapio(){
   if(!window._pc)return;
@@ -796,7 +800,16 @@ function renderCardapio(){
   const tb=document.getElementById('card-tbody'),em=document.getElementById('card-empty');
   if(!S.cardapio.length){tb.innerHTML='';em.style.display='';return}
   em.style.display='none';
-  tb.innerHTML=S.cardapio.map((c,i)=>`<tr><td class="tn">${c.rec_nome}</td><td class="tm" style="color:var(--red)">${brl(c.custo_unit)}</td><td class="tm" style="color:var(--gold2)">${brl(c.preco)}</td><td><span class="badge ${+c.marg_real>.6?'bg':'ba'}">${pct(c.marg_real)}</span></td><td><button class="btn-danger" onclick="delCard('${c.id}')">✕</button></td></tr>`).join('');
+  tb.innerHTML=S.cardapio.map((c,i)=>{
+    const custoComEmbal=r2((+c.custo_unit)+(+c.embal||0));
+    return`<tr>
+      <td class="tn">${c.rec_nome}</td>
+      <td class="tm" style="color:var(--red)">${brl(custoComEmbal)}<span style="font-size:9px;color:var(--text3);margin-left:4px">+emb ${brl(+c.embal||0)}</span></td>
+      <td class="tm" style="color:var(--gold2)">${brl(c.preco)}</td>
+      <td><span class="badge ${+c.marg_real>.6?'bg':'ba'}">${pct(c.marg_real)}</span></td>
+      <td><button class="btn-danger" onclick="delCard('${c.id}')">✕</button></td>
+    </tr>`;
+  }).join('');
 }
 async function delCard(id){setStatus('load','...');try{await apiDelete('cardapio',id);await loadAll();renderCardapio();setStatus('ok','ok');}catch(e){setStatus('err','erro');}}
 
@@ -1097,16 +1110,18 @@ function recalcularCustos(){
     return {...rec, custo_total, custo_unit};
   });
 
-  // Recalcula cardápio: atualiza custo_unit e recalcula preço com mesma margem/embal
+  // Recalcula cardápio: custo_unit = custo PURO da receita (sem embalagem)
+  // preco = (custo_puro + embal) / (1 - var - marg)  — igual à planilha
   S.cardapio=S.cardapio.map(c=>{
     const rec=S.receitas.find(r=>r.nome===c.rec_nome);
     if(!rec) return c;
     const embal=+c.embal||0;
     const varP=+c.var_p||0;
     const marg=+c.marg||0;
-    const custo_unit=r2(rec.custo_unit+embal);
-    const preco=marg>0&&varP<1?r2(custo_unit/(1-varP-marg)):c.preco;
-    const lucro_unit=r2(preco-custo_unit);
+    const custo_unit=r2(rec.custo_unit);                        // custo PURO, sem embal
+    const cuComEmbal=r2(custo_unit+embal);                      // só para calcular preço
+    const preco=marg>0&&varP<1?r2(cuComEmbal/(1-varP-marg)):c.preco;
+    const lucro_unit=r2(preco-cuComEmbal);
     const marg_real=preco>0?r2(lucro_unit/preco):0;
     return {...c, custo_unit, preco, lucro_unit, marg_real};
   });
