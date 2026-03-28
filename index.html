@@ -464,6 +464,12 @@ async function apiDelete(table,id){
 async function apiDeleteWhere(table,filter){
   return apiCall({action:'deleteWhere',table,filter});
 }
+// Batch: executa múltiplas operações em UMA única requisição ao Apps Script
+// ops = [{action, table, data, id?, uniqueField?, filter?}, ...]
+async function apiBatch(ops){
+  if(!ops.length) return {ok:true,results:[]};
+  return apiCall({action:'batch',payload:JSON.stringify({ops})});
+}
 
 // ── STATUS ────────────────────────────────────────────────────────────────────
 function setStatus(s,msg){
@@ -522,12 +528,12 @@ async function salvarIns(){
     const recMudadas=S.receitas.filter(r=>antes[r.nome]!==undefined&&Math.abs(r.custo_unit-(antes[r.nome]||0))>0.001);
     const cardMudados=S.cardapio.filter(c=>antesCard[c.rec_nome]!==undefined&&Math.abs(c.preco-(antesCard[c.rec_nome]||0))>0.001);
     // Persiste os novos custos no banco (receitas e cardápio)
-    for(const r of recMudadas){
-      await apiPost('update','receitas',{custo_total:r.custo_total,custo_unit:r.custo_unit},{id:r.id});
-    }
-    for(const c of cardMudados){
-      await apiPost('update','cardapio',{custo_unit:c.custo_unit,preco:c.preco,lucro_unit:c.lucro_unit,marg_real:c.marg_real},{id:c.id});
-    }
+    // Batch: atualiza receitas e cardápio em UMA única chamada
+    const batchOps=[
+      ...recMudadas.map(r=>({action:'update',table:'receitas',id:r.id,data:{custo_total:r.custo_total,custo_unit:r.custo_unit}})),
+      ...cardMudados.map(c=>({action:'update',table:'cardapio',id:c.id,data:{custo_unit:c.custo_unit,preco:c.preco,lucro_unit:c.lucro_unit,marg_real:c.marg_real}})),
+    ];
+    if(batchOps.length) await apiBatch(batchOps);
     // Monta mensagem de resumo
     let msg='✅ Insumo salvo!';
     if(recMudadas.length||cardMudados.length){
@@ -569,7 +575,7 @@ async function loadPadrao(){
   if(!novos.length){showAl('ins-al','Todos já cadastrados.','i');return}
   loading(true);setStatus('load','carregando...');
   try{
-    for(const x of novos) await apiPost('insert','insumos',{id:uid(),nome:x.nome,emb:x.emb,preco:x.preco,cpg:r2(x.preco/x.emb/1000)});
+    await apiBatch(novos.map(x=>({action:'insert',table:'insumos',data:{id:uid(),nome:x.nome,emb:x.emb,preco:x.preco,cpg:r2(x.preco/x.emb/1000)}})));
     await loadAll();renderIns();showAl('ins-al',`${novos.length} insumos adicionados!`);setStatus('ok','ok');
   }catch(e){setStatus('err','erro');showAl('ins-al','Erro: '+e.message,'e');}
   loading(false);
@@ -680,13 +686,11 @@ async function salvarRec(){
   try{
     await apiPost('upsert','receitas',{id:recId,nome,cat,rend,obs,custo_total:r2(ct),custo_unit:r2(ct/rend)},{uniqueField:'nome'});
     await apiDeleteWhere('receita_ings','receita_id:'+recId);
-    for(const ing of ings) await apiPost('insert','receita_ings',{id:uid(),receita_id:recId,nome:ing.nome,qtd:ing.qtd,tipo:ing.tipo||'insumo'});
+    if(ings.length) await apiBatch(ings.map(ing=>({action:'insert',table:'receita_ings',data:{id:uid(),receita_id:recId,nome:ing.nome,qtd:ing.qtd,tipo:ing.tipo||'insumo'}})));
     await loadAll();
     // Atualiza cardápio que usa esta receita (preço muda se custo mudou)
     const noCard=S.cardapio.filter(c=>c.rec_nome===nome);
-    for(const c of noCard){
-      await apiPost('update','cardapio',{custo_unit:c.custo_unit,preco:c.preco,lucro_unit:c.lucro_unit,marg_real:c.marg_real},{id:c.id});
-    }
+    if(noCard.length) await apiBatch(noCard.map(c=>({action:'update',table:'cardapio',id:c.id,data:{custo_unit:c.custo_unit,preco:c.preco,lucro_unit:c.lucro_unit,marg_real:c.marg_real}})));
     renderRecLista();
     showAl('rec-al',`✅ Receita salva!${noCard.length?' · Cardápio atualizado.':''}`);
     setStatus('ok','salvo');
@@ -919,8 +923,11 @@ async function salvarEvento(){
     await apiPost('upsert','eventos',{id:evId,nome,data,local,obs,total,status:'pendente',criado_em:new Date().toISOString().split('T')[0]},{uniqueField:'id'});
     await apiDeleteWhere('evento_itens','evento_id:'+evId);
     await apiDeleteWhere('evento_parcelas','evento_id:'+evId);
-    for(const it of itens) await apiPost('insert','evento_itens',{id:uid(),evento_id:evId,produto:it.produto,preco:it.preco,qtd:it.qtd});
-    for(let i=0;i<parcelas.length;i++) await apiPost('insert','evento_parcelas',{id:uid(),evento_id:evId,num:i+1,data:parcelas[i].data,valor:parcelas[i].valor,pago:'false',pago_em:''});
+    const evBatch=[
+      ...itens.map(it=>({action:'insert',table:'evento_itens',data:{id:uid(),evento_id:evId,produto:it.produto,preco:it.preco,qtd:it.qtd}})),
+      ...parcelas.map((p,i)=>({action:'insert',table:'evento_parcelas',data:{id:uid(),evento_id:evId,num:i+1,data:p.data,valor:p.valor,pago:'false',pago_em:''}})),
+    ];
+    if(evBatch.length) await apiBatch(evBatch);
     await loadAll();renderEventos();limparEvento();showAl('ev-al','Evento salvo!');setStatus('ok','salvo');
     sitab('ev','lista',document.querySelectorAll('#pg-eventos .itab')[0]);
   }catch(e){setStatus('err','erro');showAl('ev-al','Erro: '+e.message,'e');}
